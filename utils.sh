@@ -98,7 +98,15 @@ get_prebuilts() {
 				wpr "More than 1 asset was found for this cli release. Falling back to the higher one found..."
 			fi
 			asset=$(jq -r '
-  sort_by(.name | capture("([0-9]+(\\.[0-9]+)+)") | .string | split(".") | map(tonumber))
+  map(select(.name | test("[0-9]+(\\.[0-9]+)+")))
+  | sort_by(
+      (.name
+        | capture("(?<ver>[0-9]+(\\.[0-9]+)+)")
+        | .ver
+        | split(".")
+        | map(tonumber)
+      )
+    )
   | last
 ' <<<"$matches")
 			url=$(jq -r .url <<<"$asset")
