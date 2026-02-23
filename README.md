@@ -35,9 +35,9 @@ You can easily install or keep your ReVanced/Morphe apps up to date by using [Ob
 ```bash
 bash <(curl -sSf https://raw.githubusercontent.com/peternmuller/revanced-morphe-builder/main/build-termux.sh)
 ```
-### On Desktop
+### On Linux
 ```bash
-git clone https://github.com/peternmuller/revanced-morphe-builder
+git clone https://github.com/peternmuller/revanced-morphe-builder --depth 1
 cd revanced-morphe-builder
 ./build.sh
 ```
