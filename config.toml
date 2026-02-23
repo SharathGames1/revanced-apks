@@ -28,5 +28,5 @@ cli-source = "MorpheApp/morphe-cli"
 patches-version = "dev"
 cli-version = "dev"
 build-mode = "apk"
-enabled= "false"
+#enabled= "false"
 
