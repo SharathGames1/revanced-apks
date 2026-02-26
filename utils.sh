@@ -95,20 +95,9 @@ get_prebuilts() {
 			if [ "$(jq 'length' <<<"$matches")" -eq 0 ]; then
 				abort "No asset was found"
 			elif [ "$(jq 'length' <<<"$matches")" -ne 1 ]; then
-				wpr "More than 1 asset was found for this cli release. Falling back to the higher one found..."
+				wpr "More than 1 asset was found for this cli release. Falling back to the first one found..."
 			fi
-			asset=$(jq -r '
-  map(select(.name | test("[0-9]+(\\.[0-9]+)+")))
-  | sort_by(
-      (.name
-        | capture("(?<ver>[0-9]+(\\.[0-9]+)+)")
-        | .ver
-        | split(".")
-        | map(tonumber)
-      )
-    )
-  | last
-' <<<"$matches")
+			asset=$(jq -r 'map(select(.name|test("[0-9]+(\\.[0-9]+)+")))|sort_by(.name|capture("(?<v>[0-9]+(\\.[0-9]+)+)")|.v|split(".")|map(tonumber))|last' <<<"$matches")	
 			url=$(jq -r .url <<<"$asset")
 			name=$(jq -r .name <<<"$asset")
 			file="${dir}/${name}"
@@ -244,7 +233,7 @@ gh_dl() {
 log() { echo -e "$1  " >>"build.md"; }
 get_highest_ver() {
 	local vers m
-	vers=$(tee|sed 's/∞/0/g')
+	vers=$(tee)
 	m=$(head -1 <<<"$vers")
 	if ! semver_validate "$m"; then echo "$m"; else sort -rV <<<"$vers" | head -1; fi
 }
@@ -267,7 +256,7 @@ get_patch_last_supported_ver() {
 			line="${line:1:${#line}-2}"
 			ver=$(sed -n "/^Name: $line\$/,/^\$/p" <<<"$op" | sed -n "/^Compatible versions:\$/,/^\$/p" | tail -n +2)
 			vers=${ver}${NL}
-		done <<<"$(list_args "$inc_sel")"
+		done <<<"$(list_args "$inc_sel")"	
 		vers=$(awk '{$1=$1}1' <<<"$vers")
 		if [ "$vers" ]; then
 			get_highest_ver <<<"$vers"
@@ -490,88 +479,11 @@ dl_direct() {
 get_direct_vers() { cut -d- -f2 <<<"$__DIRECT_APKNAME__"; }
 get_direct_pkg_name() { cut -d- -f1 <<<"$__DIRECT_APKNAME__"; }
 get_direct_resp() { __DIRECT_APKNAME__=$(awk -F/ '{print $NF}' <<<"$1"); }
-
-# -------------------- github release --------------------
-get_github_release_resp() {
-	local url="$1"
-	local repo=${url#*github.com/}
-	repo=${repo%/releases/*}
-	__GITHUB_RELEASE_REPO__="$repo"
-	__GITHUB_RELEASE_RESP__=$(gh_req "https://api.github.com/repos/$repo/releases/latest" -) || return 1
-}
-
-get_github_release_pkg_name() {
-	local assets target_app pkg_guess
-	assets=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r '.assets[].name')
-	target_app="${TARGET_APP_NAME,,}"
-
-	for asset in $assets; do
-		pkg_guess=$(echo "$asset" | sed -E 's/(-|[0-9]).*//')
-		if [[ "$pkg_guess" == com.* ]]; then
-			if [[ "$target_app" == *"music"* ]] && [[ "$pkg_guess" == *"youtube.music"* ]]; then
-				echo "$pkg_guess"
-				return
-			elif [[ "$target_app" == *"youtube"* ]] && [[ "$pkg_guess" == *"youtube"* ]] && [[ "$pkg_guess" != *"music"* ]]; then
-				echo "$pkg_guess"
-				return
-			elif [[ "$pkg_guess" == *"$target_app"* ]]; then
-				echo "$pkg_guess"
-				return
-			fi
-		fi
-	done
-	return 1
-}
-
-get_github_release_vers() {
-	local assets=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r '.assets[].name')
-	echo "$assets" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+).*/\1/' | sort -Vu | grep '^[0-9]'
-}
-
-dl_github_release() {
-	local url=$1 version=$2 output=$3 arch=$4 dpi=$5
-	local download_url ver_clean arch_clean pkg_name
-
-	ver_clean=${version// /}
-	ver_clean=${ver_clean#v}
-
-	pkg_name=$(get_github_release_pkg_name)
-
-	if [ "$arch" = "arm64-v8a" ]; then
-		arch_clean="arm64-v8a"
-	elif [ "$arch" = "arm-v7a" ] || [ "$arch" = "armeabi-v7a" ]; then
-		arch_clean="arm-v7a"
-	else
-		arch_clean="all"
-	fi
-
-	download_url=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r --arg v "$ver_clean" --arg a "$arch_clean" --arg pkg "$pkg_name" '
-		.assets[] | 
-		select(.name | contains($pkg)) |
-		select(.name | contains($v)) | 
-		select(.name | contains($a)) | 
-		.browser_download_url' | head -n 1)
-
-	if [ -z "$download_url" ] || [ "$download_url" = "null" ]; then
-		download_url=$(echo "$__GITHUB_RELEASE_RESP__" | jq -r --arg v "$ver_clean" --arg pkg "$pkg_name" '
-			.assets[] | 
-			select(.name | contains($pkg)) |
-			select(.name | contains($v)) | 
-			.browser_download_url' | head -n 1)
-	fi
-
-	if [ -n "$download_url" ] && [ "$download_url" != "null" ]; then
-		pr "Found GitHub asset: $download_url"
-		req "$download_url" "$output"
-		return 0
-	fi
-	return 1
-}
 # --------------------------------------------------
 
 patch_apk() {
 	local stock_input=$1 patched_apk=$2 patcher_args=$3 cli_jar=$4 patches_jar=$5
-	local cmd="env -u GITHUB_REPOSITORY java -jar '$cli_jar' patch '$stock_input' --purge -o '$patched_apk' -p '$patches_jar' --keystore=sign.keystore \
+	local cmd="java -jar '$cli_jar' patch '$stock_input' --purge -o '$patched_apk' -p '$patches_jar' --keystore=sign.keystore \
 --keystore-entry-password=$KEYSTORE_PASS --keystore-password=$KEYSTORE_PASS --signer=sharath --keystore-entry-alias=sharath $patcher_args"
 	if [ "$OS" = Android ]; then cmd+=" --custom-aapt2-binary='${AAPT2}'"; fi
 	pr "$cmd"
@@ -603,15 +515,13 @@ build_rv() {
 	local arch=${args[arch]}
 	local arch_f="${arch// /}"
 
-	export TARGET_APP_NAME="${args[app_name]}"
-
 	local p_patcher_args=()
 	if [ "${args[excluded_patches]}" ]; then p_patcher_args+=("$(join_args "${args[excluded_patches]}" -d)"); fi
 	if [ "${args[included_patches]}" ]; then p_patcher_args+=("$(join_args "${args[included_patches]}" -e)"); fi
 	[ "${args[exclusive_patches]}" = true ] && p_patcher_args+=("--exclusive")
 
 	local tried_dl=()
-	for dl_p in archive apkmirror github_release uptodown; do
+	for dl_p in archive apkmirror uptodown; do
 		if [ -z "${args[${dl_p}_dlurl]}" ]; then continue; fi
 		if ! get_${dl_p}_resp "${args[${dl_p}_dlurl]}" || ! pkg_name=$(get_"${dl_p}"_pkg_name); then
 			args[${dl_p}_dlurl]=""
@@ -665,7 +575,7 @@ build_rv() {
 	version_f=${version_f#v}
 	local stock_apk="${TEMP_DIR}/${pkg_name}-${version_f}-${arch_f}.apk"
 	if [ ! -f "$stock_apk" ]; then
-		for dl_p in archive apkmirror github_release uptodown; do
+		for dl_p in archive apkmirror uptodown; do
 			if [ -z "${args[${dl_p}_dlurl]}" ]; then continue; fi
 			pr "Downloading '${table}' from '${dl_p}'"
 			if ! isoneof $dl_p "${tried_dl[@]}"; then
@@ -791,7 +701,7 @@ module_prop() {
 name=${2}
 version=v${3}
 versionCode=${NEXT_VER_CODE}
-author=peternmuller
+author=j-hc
 description=${4}" >"${6}/module.prop"
 
 	if [ "$ENABLE_MODULE_UPDATE" = true ]; then echo "updateJson=${5}" >>"${6}/module.prop"; fi
