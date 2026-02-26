@@ -12,7 +12,7 @@ fi
 source utils.sh
 
 jq --version >/dev/null || abort "\`jq\` is not installed. install it with 'apt install jq' or equivalent"
-java --version >/dev/null || abort "\`openjdk 21\` is not installed. install it with 'apt install openjdk-21-jre' or equivalent"
+java --version >/dev/null || abort "\`openjdk 17\` is not installed. install it with 'apt install openjdk-17-jre' or equivalent"
 zip --version >/dev/null || abort "\`zip\` is not installed. install it with 'apt install zip' or equivalent"
 
 set_prebuilts
@@ -54,10 +54,10 @@ for file in "$TEMP_DIR"/*/changelog.md; do
 done
 
 mkdir -p ${MODULE_TEMPLATE_DIR}/bin/arm64 ${MODULE_TEMPLATE_DIR}/bin/arm ${MODULE_TEMPLATE_DIR}/bin/x86 ${MODULE_TEMPLATE_DIR}/bin/x64
-gh_dl "${MODULE_TEMPLATE_DIR}/bin/arm64/cmpr" "https://github.com/peternmuller/cmpr/releases/latest/download/cmpr-arm64-v8a"
-gh_dl "${MODULE_TEMPLATE_DIR}/bin/arm/cmpr" "https://github.com/peternmuller/cmpr/releases/latest/download/cmpr-armeabi-v7a"
-gh_dl "${MODULE_TEMPLATE_DIR}/bin/x86/cmpr" "https://github.com/peternmuller/cmpr/releases/latest/download/cmpr-x86"
-gh_dl "${MODULE_TEMPLATE_DIR}/bin/x64/cmpr" "https://github.com/peternmuller/cmpr/releases/latest/download/cmpr-x86_64"
+gh_dl "${MODULE_TEMPLATE_DIR}/bin/arm64/cmpr" "https://github.com/j-hc/cmpr/releases/latest/download/cmpr-arm64-v8a"
+gh_dl "${MODULE_TEMPLATE_DIR}/bin/arm/cmpr" "https://github.com/j-hc/cmpr/releases/latest/download/cmpr-armeabi-v7a"
+gh_dl "${MODULE_TEMPLATE_DIR}/bin/x86/cmpr" "https://github.com/j-hc/cmpr/releases/latest/download/cmpr-x86"
+gh_dl "${MODULE_TEMPLATE_DIR}/bin/x64/cmpr" "https://github.com/j-hc/cmpr/releases/latest/download/cmpr-x86_64"
 
 idx=0
 for table_name in $(toml_get_table_names); do
@@ -99,21 +99,18 @@ for table_name in $(toml_get_table_names); do
 			abort "ERROR: build-mode '${app_args[build_mode]}' is not a valid option for '${table_name}': only 'both', 'apk' or 'module' is allowed"
 		fi
 	} || app_args[build_mode]=apk
-	app_args[uptodown_dlurl]=$(toml_get "$t" uptodown-dlurl) && {
-		app_args[uptodown_dlurl]=${app_args[uptodown_dlurl]%/}
-		app_args[uptodown_dlurl]=${app_args[uptodown_dlurl]%download}
-		app_args[uptodown_dlurl]=${app_args[uptodown_dlurl]%/}
-		app_args[dl_from]=uptodown
-	} || app_args[uptodown_dlurl]=""
-	app_args[apkmirror_dlurl]=$(toml_get "$t" apkmirror-dlurl) && {
-		app_args[apkmirror_dlurl]=${app_args[apkmirror_dlurl]%/}
-		app_args[dl_from]=apkmirror
-	} || app_args[apkmirror_dlurl]=""
-	app_args[archive_dlurl]=$(toml_get "$t" archive-dlurl) && {
-		app_args[archive_dlurl]=${app_args[archive_dlurl]%/}
-		app_args[dl_from]=archive
-	} || app_args[archive_dlurl]=""
-	if [ -z "${app_args[dl_from]-}" ]; then abort "ERROR: no 'apkmirror_dlurl', 'uptodown_dlurl' or 'archive_dlurl' option was set for '$table_name'."; fi
+
+	for dl_from in "direct" "uptodown" "apkmirror" "archive"; do
+		if app_args[${dl_from}_dlurl]=$(toml_get "$t" ${dl_from}-dlurl); then
+			app_args[${dl_from}_dlurl]=${app_args[${dl_from}_dlurl]%/}
+			app_args[${dl_from}_dlurl]=${app_args[${dl_from}_dlurl]%download}
+			app_args[${dl_from}_dlurl]=${app_args[${dl_from}_dlurl]%/}
+			app_args[dl_from]=${dl_from}
+		else
+			app_args[${dl_from}_dlurl]=""
+		fi
+	done
+	if [ -z "${app_args[dl_from]-}" ]; then abort "ERROR: no 'apkmirror-dlurl', 'uptodown-dlurl' or 'archive-dlurl' option was set for '$table_name'."; fi
 	app_args[arch]=$(toml_get "$t" arch) || app_args[arch]="all"
 	if ! isoneof "${app_args[arch]}" "both" "all" "arm64-v8a" "arm-v7a" "x86_64" "x86"; then
 		abort "wrong arch '${app_args[arch]}' for '$table_name'"
@@ -123,14 +120,7 @@ for table_name in $(toml_get_table_names); do
 	app_args[dpi]=$(toml_get "$t" dpi) || app_args[dpi]="$DEF_DPI_LIST"
 	table_name_f=${table_name,,}
 	table_name_f=${table_name_f// /-}
-	app_args[module_prop_name]=$(toml_get "$t" module-prop-name) || {
-		app_args[module_prop_name]="${table_name_f}-jhc"
-		if [ "${app_args[arch]}" = "arm64-v8a" ]; then
-			app_args[module_prop_name]="${app_args[module_prop_name]}-arm64"
-		elif [ "${app_args[arch]}" = "arm-v7a" ]; then
-			app_args[module_prop_name]="${app_args[module_prop_name]}-arm"
-		fi
-	}
+	app_args[module_prop_name]=$(toml_get "$t" module-prop-name) || app_args[module_prop_name]="${table_name_f}-jhc"
 
 	if [ "${app_args[arch]}" = both ]; then
 		app_args[table]="$table_name (arm64-v8a)"
@@ -163,9 +153,9 @@ rm -rf temp/tmp.*
 if [ -z "$(ls -A1 "${BUILD_DIR}")" ]; then abort "All builds failed."; fi
 
 log "\nInstall [Microg](https://github.com/ReVanced/GmsCore/releases) for non-root YouTube and YT Music APKs"
-log "Use [zygisk-detach](https://github.com/j-hc/zygisk-detach) to detach root ReVanced YouTube and YT Music from Play Store"
+log "Use [zygisk-detach](https://github.com/j-hc/zygisk-detach) to detach YouTube and YT Music modules from Play Store"
 log "\n[revanced-magisk-module](https://github.com/j-hc/revanced-magisk-module)\n"
-log "$(cat "$TEMP_DIR"/*-rv/changelog.md)"
+log "$(cat "$TEMP_DIR"/*/changelog.md)"
 
 SKIPPED=$(cat "$TEMP_DIR"/skipped 2>/dev/null || :)
 if [ -n "$SKIPPED" ]; then
