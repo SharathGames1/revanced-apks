@@ -97,7 +97,7 @@ get_prebuilts() {
 			elif [ "$(jq 'length' <<<"$matches")" -ne 1 ]; then
 				wpr "More than 1 asset was found for this cli release. Falling back to the first one found..."
 			fi
-			asset=$(jq -r ".[0]" <<<"$matches")
+			asset=$(jq -r 'sort_by(.name | capture("(?<M>[0-9]+)\\.(?<m>[0-9]+)\\.(?<p>[0-9]+)(?:-(?<pre>.*))?") | [(.M|tonumber),(.m|tonumber),(.p|tonumber),(if .pre then 0 else 1 end),(.pre//"")]) | last' <<<"$matches")
 			url=$(jq -r .url <<<"$asset")
 			name=$(jq -r .name <<<"$asset")
 			file="${dir}/${name}"
@@ -483,8 +483,8 @@ get_direct_resp() { __DIRECT_APKNAME__=$(awk -F/ '{print $NF}' <<<"$1"); }
 
 patch_apk() {
 	local stock_input=$1 patched_apk=$2 patcher_args=$3 cli_jar=$4 patches_jar=$5
-	local cmd="java -jar '$cli_jar' patch '$stock_input' --purge -o '$patched_apk' -p '$patches_jar' --keystore=ks.keystore \
---keystore-entry-password=123456789 --keystore-password=123456789 --signer=jhc --keystore-entry-alias=jhc $patcher_args"
+	local cmd="java -jar '$cli_jar' patch '$stock_input' --purge -o '$patched_apk' -p '$patches_jar' --keystore=sign.keystore \
+--keystore-entry-password=$KEYSTORE_PASS --keystore-password=$KEYSTORE_PASS --signer=$KEYSTORE_ALIAS --keystore-entry-alias=$KEYSTORE_ALIAS $patcher_args"
 	if [ "$OS" = Android ]; then cmd+=" --custom-aapt2-binary='${AAPT2}'"; fi
 	pr "$cmd"
 	if eval "$cmd"; then [ -f "$patched_apk" ]; else
