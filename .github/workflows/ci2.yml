@@ -3,7 +3,7 @@ name: Patch Dolphin APK
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 */3 * * *"
 
 concurrency:
   group: dolphin-build
@@ -14,63 +14,91 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      # 📦 Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Java
+      # ☕ Java (needed for apktool + apksigner)
+      - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
 
+      # 🔧 Install apktool (FIXED)
       - name: Install apktool
         run: |
-          curl -sLO https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
-          curl -sLO https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.4.jar
+          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.4/apktool_2.9.4.jar -O apktool.jar
+
           chmod +x apktool
           sudo mv apktool /usr/local/bin/apktool
-          sudo mv apktool_2.9.4.jar /usr/local/bin/apktool.jar
+          sudo mv apktool.jar /usr/local/bin/apktool.jar
 
-      # 🔍 Find latest dev build
+      # ✅ Verify apktool (prevents corrupt jar issues)
+      - name: Verify apktool
+        run: |
+          file /usr/local/bin/apktool.jar
+          java -jar /usr/local/bin/apktool.jar --version
+
+      # 🔍 Find latest Dolphin build
       - name: Find latest Dolphin build
         run: |
           APK_URL=$(curl -s https://dolphin-emu.org/download/ \
             | grep -Eo 'https://dl\.dolphin-emu\.org/builds/[a-z0-9/]+/dolphin-master-[0-9]+-[0-9]+\.apk' \
-            | awk -F'[-/.]' '{v=$(NF-2); b=$(NF-1); if (v>V || (v==V && b>B)) {V=v; B=b; U=$0}} END{print U}')
+            | awk -F'[-/.]' '{
+              v=$(NF-2); b=$(NF-1);
+              if (v>V || (v==V && b>B)) {V=v; B=b; U=$0}
+            } END{print U}')
+
           NAME=$(basename "$APK_URL")
-          echo "APK_URL=${APK_URL}" >> $GITHUB_ENV
-          echo "NAME=${NAME}" >> $GITHUB_ENV
 
-      # 📦 Latest dolphin release
-      - name: Get latest dolphin release title
+          echo "APK_URL=$APK_URL" >> $GITHUB_ENV
+          echo "NAME=$NAME" >> $GITHUB_ENV
+
+      # 📦 Get latest dolphin release
+      - name: Get latest dolphin release
         run: |
-          LATEST=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
+          LAST=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
             | jq -r '[.[] | select(.name | startswith("dolphin"))][0].name // ""')
-          echo "LATEST=${LATEST}" >> $GITHUB_ENV
 
-      # ⏹ Skip if already patched
-      - name: Stop if up-to-date
-        if: env.NAME == env.LATEST
+          echo "LAST=$LAST" >> $GITHUB_ENV
+
+      # ⛔ Skip if same
+      - name: Skip if already latest
+        if: env.NAME == env.LAST
         run: exit 0
 
-      - name: Download latest
-        run: curl -L "${{ env.APK_URL }}" -o dolphin.apk
+      # ⬇️ Download APK
+      - name: Download APK
+        run: curl -L "$APK_URL" -o dolphin.apk
 
+      # 📂 Decompile
       - name: Decompile APK
         run: apktool d dolphin.apk -o dolphin-src
 
-      # ✏️ Edit apktool.yml instead of AndroidManifest.xml
+      # ✏️ Patch SDK via apktool.yml
       - name: Patch targetSdkVersion
         run: |
           sed -i 's/targetSdkVersion: [0-9]*/targetSdkVersion: 34/' dolphin-src/apktool.yml
 
+      # 🔨 Rebuild
       - name: Rebuild APK
         run: apktool b dolphin-src -o dolphin-patched.apk
 
-      # ✒️ Recreate BKS keystore from secret
+      # 🔍 Verify rebuilt APK exists
+      - name: Verify build output
+        run: |
+          if [ ! -f dolphin-patched.apk ]; then
+            echo "Build failed!"
+            exit 1
+          fi
+
+      # 🔐 Restore BKS keystore
       - name: Restore keystore
         run: echo "${{ secrets.KEYSTORE }}" | base64 -d > keystore.bks
 
+      # ✒️ Sign APK
       - name: Sign APK
         run: |
           apksigner sign \
@@ -81,25 +109,32 @@ jobs:
             --out signed-dolphin.apk \
             dolphin-patched.apk
 
-      # 🧹 Delete previous "dolphin" releases
-      - name: Delete old dolphin releases
+      # ✅ Verify signature
+      - name: Verify APK signature
+        run: apksigner verify signed-dolphin.apk
+
+      # 🧹 Delete old dolphin releases
+      - name: Cleanup old releases
         run: |
           curl -s https://api.github.com/repos/${{ github.repository }}/releases \
-            | jq -c '.[] | select(.name | startswith("dolphin")) | {id: .id, tag: .tag_name}' \
-            | while read r; do
-                ID=$(echo "$r" | jq -r '.id')
-                TAG=$(echo "$r" | jq -r '.tag')
-                if [ "$TAG" != "${{ env.NAME }}" ]; then
-                  curl -s -X DELETE \
-                    -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                    https://api.github.com/repos/${{ github.repository }}/releases/$ID
-                  curl -s -X DELETE \
-                    -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                    https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG
-                fi
-              done
+          | jq -c '.[] | select(.name | startswith("dolphin")) | {id: .id, tag: .tag_name}' \
+          | while read rel; do
+              ID=$(echo "$rel" | jq -r '.id')
+              TAG=$(echo "$rel" | jq -r '.tag')
 
-      - name: Create GitHub Release
+              if [ "$TAG" != "$NAME" ]; then
+                curl -s -X DELETE \
+                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  https://api.github.com/repos/${{ github.repository }}/releases/$ID
+
+                curl -s -X DELETE \
+                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG
+              fi
+            done
+
+      # 🚀 Publish release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.NAME }}
