@@ -42,11 +42,16 @@ jobs:
       - name: Verify Apktool
         run: java -jar /usr/local/bin/apktool.jar --version
 
-      # 🏗️ Install Android Build Tools r34 (direct ZIP)
+      # 🏗️ Install Android Build Tools r34
       - name: Install Android Build Tools
         run: |
           wget -q https://dl.google.com/android/repository/build-tools_r34-linux.zip -O build-tools.zip
           unzip -q build-tools.zip -d android-build-tools
+
+      # 📥 Download Bouncy Castle JAR
+      - name: Install Bouncy Castle
+        run: |
+          wget -q https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk15on/1.70/bcprov-jdk15on-1.70.jar -O bcprov.jar
 
       # 🔎 Find latest Dolphin build
       - name: Find latest Dolphin build
@@ -97,20 +102,21 @@ jobs:
       - name: Restore keystore
         run: echo "${{ secrets.KEYSTORE }}" | base64 -d > keystore.bks
 
-      # ✒️ Sign APK using apksigner.jar from Build Tools
+      # ✒️ Sign APK using apksigner.jar + Bouncy Castle
       - name: Sign APK
         run: |
-          java -jar android-build-tools/android-14/lib/apksigner.jar sign \
+          java -cp "android-build-tools/android-14/lib/apksigner.jar:bcprov.jar" com.android.apksigner.ApkSignerTool sign \
             --ks keystore.bks \
             --ks-type BKS \
             --ks-key-alias "${{ secrets.KEYSTORE_ALIAS }}" \
-            --ks-pass pass:${{ secrets.KEYSTORE_PASS }} \
+            --ks-pass pass:${{ secrets.KEYSTORE_PASS }}" \
             --out signed-dolphin.apk \
             dolphin-patched.apk
 
       # 📜 Verify APK signature
       - name: Verify APK signature
-        run: java -jar android-build-tools/android-14/lib/apksigner.jar verify signed-dolphin.apk
+        run: |
+          java -cp "android-build-tools/android-14/lib/apksigner.jar:bcprov.jar" com.android.apksigner.ApkSignerTool verify signed-dolphin.apk
 
       # 🧹 Delete old dolphin releases
       - name: Cleanup old releases
