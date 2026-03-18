@@ -104,7 +104,7 @@ jobs:
           java -jar android-build-tools/android-14/lib/apksigner.jar sign \
             --ks keystore.p12 \
             --ks-type PKCS12 \
-            --ks-key-alias "1" \
+            --ks-key-alias "${{ secrets.KEYSTORE_ALIAS }}" \
             --ks-pass pass:${{ secrets.KEYSTORE_PASS }} \
             --out signed-dolphin.apk \
             dolphin-patched.apk
