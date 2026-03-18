@@ -63,7 +63,7 @@ jobs:
 
       # 🔧 Decompile
       - name: Decompile APK
-        run: apktool d -r dolphin.apk -o dolphin-src
+        run: apktool d -s dolphin.apk -o dolphin-src
 
       # ✏️ Patch manifest
       - name: Patch target SDK
