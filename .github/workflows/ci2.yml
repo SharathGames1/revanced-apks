@@ -90,6 +90,7 @@ jobs:
       - name: Patch targetSdkVersion
         run: |
          sed -i -E 's/^( *targetSdkVersion: *)[0-9]+/\134/' dolphin-src/apktool.yml
+
       # 🔧 Rebuild APK
       - name: Rebuild APK
         run: apktool b dolphin-src -o dolphin-patched.apk
@@ -105,13 +106,13 @@ jobs:
       # ✒️ Sign APK using apksigner.jar + Bouncy Castle
       - name: Sign APK
         run: |
-          java -cp "android-build-tools/android-14/lib/apksigner.jar:bcprov.jar" com.android.apksigner.ApkSignerTool sign \
-            --ks keystore.bks \
-            --ks-type BKS \
-            --ks-key-alias "${{ secrets.KEYSTORE_ALIAS }}" \
-            --ks-pass pass:${{ secrets.KEYSTORE_PASS }}" \
-            --out signed-dolphin.apk \
-            dolphin-patched.apk
+         java -cp "android-build-tools/android-14/lib/apksigner.jar:bcprov.jar" com.android.apksigner.ApkSignerTool sign \
+          --ks keystore.bks \
+          --ks-type BKS \
+          --ks-key-alias "${{ secrets.KEYSTORE_ALIAS }}" \
+          --ks-pass pass:${{ secrets.KEYSTORE_PASS }}" \
+          --out signed-dolphin.apk \
+          dolphin-patched.apk
 
       # 📜 Verify APK signature
       - name: Verify APK signature
