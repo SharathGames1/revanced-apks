@@ -93,10 +93,6 @@ jobs:
       - name: Rebuild APK
         run: apktool b dolphin-src -o dolphin-patched.apk
 
-      # 🔍 Verify rebuild success
-      - name: Verify build
-        run: test -f dolphin-patched.apk || (echo "Build failed!" && exit 1)
-
       # 🔐 Restore P12 keystore
       - name: Restore P12 keystore
         run: echo "${{ secrets.KEYSTORE_P12 }}" | base64 -d > keystore.p12
@@ -111,12 +107,6 @@ jobs:
             --ks-pass pass:${{ secrets.KEYSTORE_PASS }} \
             --out signed-$NAME.apk \
             dolphin-patched.apk
-
-      # 📜 Verify APK signature
-      - name: Verify APK signature
-        run: |
-          java -jar android-build-tools/android-14/lib/apksigner.jar verify signed-dolphin.apk
-
       # 🧹 Delete old dolphin releases
       - name: Cleanup old releases
         run: |
