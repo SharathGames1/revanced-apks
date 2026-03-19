@@ -57,7 +57,7 @@ jobs:
               v=$(NF-2); b=$(NF-1);
               if (v>V || (v==V && b>B)) {V=v; B=b; U=$0}
             } END{print U}')
-          NAME=$(basename "$APK_URL")
+          NAME=$(basename "$APK_URL" .apk)
           echo "APK_URL=$APK_URL" >> $GITHUB_ENV
           echo "NAME=$NAME" >> $GITHUB_ENV
 
@@ -106,7 +106,7 @@ jobs:
             --ks-type PKCS12 \
             --ks-key-alias "${{ secrets.KEYSTORE_ALIAS }}" \
             --ks-pass pass:${{ secrets.KEYSTORE_PASS }} \
-            --out signed-dolphin.apk \
+            --out signed-$NAME.apk \
             dolphin-patched.apk
 
       # 📜 Verify APK signature
@@ -136,4 +136,4 @@ jobs:
         with:
           tag_name: ${{ env.NAME }}
           name: ${{ env.NAME }}
-          files: signed-dolphin.apk
+          files: signed-${{ env.NAME }}.apk
